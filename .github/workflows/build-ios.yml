@@ -43,7 +43,7 @@ jobs:
         cd icu_download
         
         # URL base de downloads da release estável que mapeamos
-        BASE_URL="https://github.com/apotocki/icu4c-iosx/releases/tag/78.3.0"
+        BASE_URL="https://github.com/apotocki/icu4c-iosx/releases/download/78.3.0"
         
         echo "Iniciando downloads dos binários legítimos de iOS..."
         curl -L -O "${BASE_URL}/include.zip"
