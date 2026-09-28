@@ -56,7 +56,7 @@ jobs:
         ls -la
 
     # ----------------------------------------------------------------
-    # ETAPA 3: Extrair Cabeçalhos e os Binários ios-arm64 do ICU
+    # ETAPA 3: Extrair Cabeçalhos e os Binários ios-arm64 do ICU (Ajustado)
     # ----------------------------------------------------------------
     - name: Descompactar e Estruturar os Zips do ICU
       run: |
@@ -66,7 +66,13 @@ jobs:
         # 1. Descompacta os cabeçalhos globais do ICU
         echo "Extraindo cabeçalhos..."
         unzip -q icu_download/include.zip -d temp_include
-        find temp_include -type d -name "unicode" -exec cp -R {} ios_deps/icu/include/ \;
+        
+        # Correção cirúrgica de caminhos: Garante que a pasta 'unicode' fique exatamente dentro de 'ios_deps/icu/include'
+        if [ -d "temp_include/unicode" ]; then
+          cp -R temp_include/unicode ios_deps/icu/include/
+        else
+          find temp_include -type d -name "unicode" -exec cp -R {} ios_deps/icu/include/ \;
+        fi
 
         # 2. Descompacta cada biblioteca estática individual do diretório de download
         echo "Extraindo bibliotecas XCFramework..."
@@ -77,29 +83,22 @@ jobs:
           fi
         done
 
-        # 3. Pescaria Cirúrgica: Pega APENAS as libs estáveis do dispositivo real (ios-arm64)
-        # Ignora as versões de simulador do Mac para manter o build puro e limpo
+        # 3. Pescaria: Pega APENAS as libs estáveis do dispositivo real (ios-arm64)
         find temp_libs -path "*/ios-arm64/*.a" -exec cp {} ios_deps/icu/lib/ \;
         
-        # Log de depuração para segurança e verificação
-        echo "=== CABEÇALHOS DO ICU PRONTOS ==="
-        ls -l ios_deps/icu/include/unicode/ | head -n 10
-        echo "=== BINÁRIOS LEGÍTIMOS DE IOS PRONTOS ==="
-        ls -l ios_deps/icu/lib/
+        # Log de depuração para termos certeza absoluta do caminho do arquivo travado
+        echo "=== CHECAGEM DA PASTA DE HEADER ==="
+        ls -la ios_deps/icu/include/
+        ls -la ios_deps/icu/include/unicode/ | head -n 5
 
     # ----------------------------------------------------------------
     # ETAPA 4: Compilar o laya.cpp acoplado aos binários extraídos
-    # ----------------------------------------------------------------
-        # ----------------------------------------------------------------
-    # ETAPA 4: Compilar o laya.cpp configurando o ICU de forma legítima
     # ----------------------------------------------------------------
     - name: Configurar e Compilar laya.cpp Cruzado para iPhone XS
       run: |
         mkdir build
         cd build
         
-        # CMAKE_PREFIX_PATH e CMAKE_FRAMEWORK_PATH ensinam o FindICU nativo a mapear
-        # os arquivos estáticos de iOS estruturando os alvos ICU::uc, ICU::i18n e ICU::data corretamente.
         cmake .. \
           -DCMAKE_SYSTEM_NAME=iOS \
           -DCMAKE_OSX_ARCHITECTURES=arm64 \
@@ -114,8 +113,11 @@ jobs:
           -Dnlohmann_json_DIR="$GITHUB_WORKSPACE/ios_deps/share/cmake/nlohmann_json" \
           -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/ios_deps/icu" \
           -DICU_ROOT="$GITHUB_WORKSPACE/ios_deps/icu" \
+          -DICU_INCLUDE_DIR="$GITHUB_WORKSPACE/ios_deps/icu/include" \
+          -DICU_INCLUDE_DIRS="$GITHUB_WORKSPACE/ios_deps/icu/include" \
           -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
           -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH
+
 
     - name: Compilar Alvo Final laya.a
       run: |
