@@ -1,4 +1,4 @@
-name: Build Dependencies and laya.cpp for iOS
+name: Build laya.cpp with Split ICU XCFrameworks
 
 on:
   push:
@@ -6,25 +6,25 @@ on:
   workflow_dispatch: 
 
 jobs:
-  build-dependencies-and-laya:
+  build-laya-ios:
     runs-on: macos-latest
 
     steps:
-    - name: Checkout do laya.cpp
+    - name: Checkout do seu repositório
       uses: actions/checkout@v4
       with:
         submodules: recursive
 
-    - name: Configurar ferramentas do Host
+    - name: Configurar ferramentas
       run: |
         brew install cmake
 
     # ----------------------------------------------------------------
-    # ETAPA 1: Baixar e Instalar o nlohmann_json para iOS
+    # ETAPA 1: Compilar nlohmann_json Cruzado para iOS (arm64)
     # ----------------------------------------------------------------
     - name: Clonar e Compilar nlohmann_json para iOS
       run: |
-        git clone --depth 1 https://github.com json_src
+        git clone --depth 1 https://github.com/nlohmann/json.git json_src
         mkdir -p json_src/build_ios && cd json_src/build_ios
         cmake .. \
           -DCMAKE_SYSTEM_NAME=iOS \
@@ -32,34 +32,69 @@ jobs:
           -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 \
           -DJSON_BuildTests=OFF
         cmake --build . --config Release
-        # Define o caminho de instalação local temporário dentro do runner
         cmake --install . --prefix ../../ios_deps
 
     # ----------------------------------------------------------------
-    # ETAPA 2: Clonar e Compilar o ICU para iOS (Usando Script Dedicado)
+    # ETAPA 2: Baixar os Ativos Pré-compilados do ICU do GitHub
     # ----------------------------------------------------------------
-    - name: Clonar e Compilar ICU para iOS (icu4c-iosx)
+    - name: Baixar Pacotes do ICU (Release 78.3.0)
       run: |
-        # Usamos uma das ferramentas mais estáveis da comunidade para cross-compile do ICU no iOS
-        git clone --depth 1 https://github.com icu_ios
-        cd icu_ios
-        # O script build.sh do repositório gera as versões macOS (host) e iOS (target) automaticamente
-        ./scripts/build.sh
+        mkdir -p icu_download
+        cd icu_download
         
-        # Movemos os arquivos gerados com a arquitetura correta para a nossa pasta unificada de dependências
-        mkdir -p ../ios_deps/icu
-        cp -R product/include ../ios_deps/icu/include
-        cp -R product/lib ../ios_deps/icu/lib
+        # URL base de downloads da release estável que mapeamos
+        BASE_URL="https://github.com/apotocki/icu4c-iosx/releases/tag/78.3.0"
+        
+        echo "Iniciando downloads dos binários legítimos de iOS..."
+        curl -L -O "${BASE_URL}/include.zip"
+        curl -L -O "${BASE_URL}/icuuc.xcframework.zip"
+        curl -L -O "${BASE_URL}/icui18n.xcframework.zip"
+        curl -L -O "${BASE_URL}/icudata.xcframework.zip"
+        curl -L -O "${BASE_URL}/icuio.xcframework.zip"
+        
+        # Garante que os arquivos foram baixados antes de prosseguir
+        ls -la
 
     # ----------------------------------------------------------------
-    # ETAPA 3: Compilar o laya.cpp apontando para as libs do iOS geradas
+    # ETAPA 3: Extrair Cabeçalhos e os Binários ios-arm64 do ICU
     # ----------------------------------------------------------------
-    - name: Compilar laya.cpp Cruzado para iPhone XS
+    - name: Descompactar e Estruturar os Zips do ICU
+      run: |
+        mkdir -p ios_deps/icu/include
+        mkdir -p ios_deps/icu/lib
+        
+        # 1. Descompacta os cabeçalhos globais do ICU
+        echo "Extraindo cabeçalhos..."
+        unzip -q icu_download/include.zip -d temp_include
+        find temp_include -type d -name "unicode" -exec cp -R {} ios_deps/icu/include/ \;
+
+        # 2. Descompacta cada biblioteca estática individual do diretório de download
+        echo "Extraindo bibliotecas XCFramework..."
+        for zipfile in icuuc.xcframework.zip icui18n.xcframework.zip icudata.xcframework.zip icuio.xcframework.zip; do
+          if [ -f "icu_download/$zipfile" ]; then
+            echo "Descompactando $zipfile..."
+            unzip -q "icu_download/$zipfile" -d temp_libs
+          fi
+        done
+
+        # 3. Pescaria Cirúrgica: Pega APENAS as libs estáveis do dispositivo real (ios-arm64)
+        # Ignora as versões de simulador do Mac para manter o build puro e limpo
+        find temp_libs -path "*/ios-arm64/*.a" -exec cp {} ios_deps/icu/lib/ \;
+        
+        # Log de depuração para segurança e verificação
+        echo "=== CABEÇALHOS DO ICU PRONTOS ==="
+        ls -l ios_deps/icu/include/unicode/ | head -n 10
+        echo "=== BINÁRIOS LEGÍTIMOS DE IOS PRONTOS ==="
+        ls -l ios_deps/icu/lib/
+
+    # ----------------------------------------------------------------
+    # ETAPA 4: Compilar o laya.cpp acoplado aos binários extraídos
+    # ----------------------------------------------------------------
+    - name: Configurar e Compilar laya.cpp Cruzado para iPhone XS
       run: |
         mkdir build
         cd build
         
-        # Apontamos diretamente para a nossa pasta 'ios_deps' criada nas etapas anteriores
         cmake .. \
           -DCMAKE_SYSTEM_NAME=iOS \
           -DCMAKE_OSX_ARCHITECTURES=arm64 \
@@ -78,19 +113,18 @@ jobs:
           -DICU_I18N_LIBRARY="$GITHUB_WORKSPACE/ios_deps/icu/lib/libicui18n.a" \
           -DICU_DATA_LIBRARY="$GITHUB_WORKSPACE/ios_deps/icu/lib/libicudata.a"
 
-    - name: Compilar Alvo Final
+    - name: Compilar Alvo Final laya.a
       run: |
         cd build
         cmake --build . --target laya --config Release
 
     # ----------------------------------------------------------------
-    # ETAPA 4: Coletar e disponibilizar os binários estáveis de iOS
+    # ETAPA 5: Guardar o resultado final limpo
     # ----------------------------------------------------------------
-    - name: Upload dos Artefatos de iOS
+    - name: Upload das Bibliotecas Prontas para o Xcode
       uses: actions/upload-artifact@v4
       with:
-        name: laya-complete-ios-arm64
+        name: laya-engine-ios-arm64
         path: |
           build/liblaya.a
           build/third_party/ggml/src/libggml.a
-          ios_deps/icu/lib/*.a
