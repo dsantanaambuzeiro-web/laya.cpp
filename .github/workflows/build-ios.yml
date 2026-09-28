@@ -17,15 +17,18 @@ jobs:
       with:
         submodules: recursive 
 
-    - name: Configurar ferramentas de build
+    - name: Configurar ferramentas e dependências
       run: |
-        brew install cmake
+        brew install cmake nlohmann-json icu4c
+        # Mapeia as variáveis de ambiente com os caminhos corretos do Homebrew
+        echo "ICU_ROOT=/opt/homebrew/opt/icu4c" >> $GITHUB_ENV
+        echo "NLOHMANN_JSON_DIR=/opt/homebrew/opt/nlohmann-json/share/cmake/nlohmann_json" >> $GITHUB_ENV
 
-    - name: Configurar o Build Estrito (Apenas a biblioteca Laya Core)
+    - name: Configurar o Build com Dependências Mapeadas
       run: |
         mkdir build
         cd build
-        # Passamos argumentos para desativar os executáveis que pedem ICU e JSON
+        # Forçamos o CMake a ler os caminhos do ICU e JSON que o Homebrew instalou
         cmake .. \
           -DCMAKE_SYSTEM_NAME=iOS \
           -DCMAKE_OSX_ARCHITECTURES=arm64 \
@@ -36,12 +39,13 @@ jobs:
           -DLAYA_VULKAN=OFF \
           -DGGML_CUDA=OFF \
           -DGGML_BUILD_EXAMPLES=OFF \
-          -DGGML_BUILD_TESTS=OFF
+          -DGGML_BUILD_TESTS=OFF \
+          -DICU_ROOT="${{ env.ICU_ROOT }}" \
+          -Dnlohmann_json_DIR="${{ env.NLOHMANN_JSON_DIR }}"
 
-    - name: Compilar apenas o Laya Core
+    - name: Compilar a Biblioteca
       run: |
         cd build
-        # Forçamos o make/ninja a compilar especificamente o target 'laya' e 'ggml'
         cmake --build . --target laya --config Release
 
     - name: Upload do Binário Compilado (Artefato)
