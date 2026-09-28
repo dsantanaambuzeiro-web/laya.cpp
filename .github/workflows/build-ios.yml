@@ -90,11 +90,16 @@ jobs:
     # ----------------------------------------------------------------
     # ETAPA 4: Compilar o laya.cpp acoplado aos binários extraídos
     # ----------------------------------------------------------------
+        # ----------------------------------------------------------------
+    # ETAPA 4: Compilar o laya.cpp configurando o ICU de forma legítima
+    # ----------------------------------------------------------------
     - name: Configurar e Compilar laya.cpp Cruzado para iPhone XS
       run: |
         mkdir build
         cd build
         
+        # CMAKE_PREFIX_PATH e CMAKE_FRAMEWORK_PATH ensinam o FindICU nativo a mapear
+        # os arquivos estáticos de iOS estruturando os alvos ICU::uc, ICU::i18n e ICU::data corretamente.
         cmake .. \
           -DCMAKE_SYSTEM_NAME=iOS \
           -DCMAKE_OSX_ARCHITECTURES=arm64 \
@@ -107,11 +112,10 @@ jobs:
           -DGGML_BUILD_EXAMPLES=OFF \
           -DGGML_BUILD_TESTS=OFF \
           -Dnlohmann_json_DIR="$GITHUB_WORKSPACE/ios_deps/share/cmake/nlohmann_json" \
-          -DICU_INCLUDE_DIR="$GITHUB_WORKSPACE/ios_deps/icu/include" \
-          -DICU_LIBRARY="$GITHUB_WORKSPACE/ios_deps/icu/lib/libicuuc.a" \
-          -DICU_UC_LIBRARY="$GITHUB_WORKSPACE/ios_deps/icu/lib/libicuuc.a" \
-          -DICU_I18N_LIBRARY="$GITHUB_WORKSPACE/ios_deps/icu/lib/libicui18n.a" \
-          -DICU_DATA_LIBRARY="$GITHUB_WORKSPACE/ios_deps/icu/lib/libicudata.a"
+          -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/ios_deps/icu" \
+          -DICU_ROOT="$GITHUB_WORKSPACE/ios_deps/icu" \
+          -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
+          -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH
 
     - name: Compilar Alvo Final laya.a
       run: |
