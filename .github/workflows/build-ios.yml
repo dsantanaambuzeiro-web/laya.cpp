@@ -20,9 +20,11 @@ jobs:
     - name: Configurar ferramentas de build
       run: |
         brew install cmake nlohmann-json icu4c
+        # Exporta os caminhos do ICU e do nlohmann_json para o ambiente do GitHub
         echo "export PATH=\"/opt/homebrew/opt/icu4c/bin:/opt/homebrew/opt/icu4c/sbin:\$PATH\"" >> $GITHUB_ENV
+        echo "NLOHMANN_JSON_DIR=/opt/homebrew/opt/nlohmann-json/share/cmake/nlohmann_json" >> $GITHUB_ENV
 
-    - name: Configurar o Build (Configurando iOS e Core ML)
+    - name: Configurar o Build (Apontando dependências e iOS)
       run: |
         mkdir build
         cd build
@@ -34,7 +36,8 @@ jobs:
           -DLAYA_CUDA=OFF \
           -DLAYA_COREML=ON \
           -DLAYA_VULKAN=OFF \
-          -DGGML_CUDA=OFF
+          -DGGML_CUDA=OFF \
+          -Dnlohmann_json_DIR="${{ env.NLOHMANN_JSON_DIR }}"
 
     - name: Compilar o laya.cpp
       run: |
