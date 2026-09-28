@@ -19,15 +19,13 @@ jobs:
 
     - name: Configurar ferramentas de build
       run: |
-        brew install cmake nlohmann-json icu4c
-        # Exporta os caminhos do ICU e do nlohmann_json para o ambiente do GitHub
-        echo "export PATH=\"/opt/homebrew/opt/icu4c/bin:/opt/homebrew/opt/icu4c/sbin:\$PATH\"" >> $GITHUB_ENV
-        echo "NLOHMANN_JSON_DIR=/opt/homebrew/opt/nlohmann-json/share/cmake/nlohmann_json" >> $GITHUB_ENV
+        brew install cmake
 
-    - name: Configurar o Build (Apontando dependências e iOS)
+    - name: Configurar o Build Estrito (Apenas a biblioteca Laya Core)
       run: |
         mkdir build
         cd build
+        # Passamos argumentos para desativar os executáveis que pedem ICU e JSON
         cmake .. \
           -DCMAKE_SYSTEM_NAME=iOS \
           -DCMAKE_OSX_ARCHITECTURES=arm64 \
@@ -37,17 +35,19 @@ jobs:
           -DLAYA_COREML=ON \
           -DLAYA_VULKAN=OFF \
           -DGGML_CUDA=OFF \
-          -Dnlohmann_json_DIR="${{ env.NLOHMANN_JSON_DIR }}"
+          -DGGML_BUILD_EXAMPLES=OFF \
+          -DGGML_BUILD_TESTS=OFF
 
-    - name: Compilar o laya.cpp
+    - name: Compilar apenas o Laya Core
       run: |
         cd build
-        cmake --build . --config Release
+        # Forçamos o make/ninja a compilar especificamente o target 'laya' e 'ggml'
+        cmake --build . --target laya --config Release
 
     - name: Upload do Binário Compilado (Artefato)
       uses: actions/upload-artifact@v4
       with:
         name: laya-cpp-ios-arm64
         path: |
-          build/bin/
-          build/*.a
+          build/liblaya.a
+          build/third_party/ggml/src/libggml.a
