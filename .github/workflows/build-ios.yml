@@ -3,7 +3,7 @@ name: Build laya.cpp with Split ICU XCFrameworks
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: 
+  workflow_dispatch:
 
 jobs:
   build-laya-ios:
@@ -41,40 +41,35 @@ jobs:
       run: |
         mkdir -p icu_download
         cd icu_download
-        
-        # URL base de downloads da release estável que mapeamos
+
         BASE_URL="https://github.com/apotocki/icu4c-iosx/releases/download/78.3.0"
-        
-        echo "Iniciando downloads dos binários legítimos de iOS..."
+
+        echo "Iniciando downloads dos binários de iOS..."
         curl -L -O "${BASE_URL}/include.zip"
         curl -L -O "${BASE_URL}/icuuc.xcframework.zip"
         curl -L -O "${BASE_URL}/icui18n.xcframework.zip"
         curl -L -O "${BASE_URL}/icudata.xcframework.zip"
         curl -L -O "${BASE_URL}/icuio.xcframework.zip"
-        
-        # Garante que os arquivos foram baixados antes de prosseguir
+
         ls -la
 
     # ----------------------------------------------------------------
-    # ETAPA 3: Extrair Cabeçalhos e os Binários ios-arm64 do ICU (Ajustado)
+    # ETAPA 3: Extrair Cabeçalhos e Binários ios-arm64 do ICU
     # ----------------------------------------------------------------
     - name: Descompactar e Estruturar os Zips do ICU
       run: |
         mkdir -p ios_deps/icu/include
         mkdir -p ios_deps/icu/lib
-        
-        # 1. Descompacta os cabeçalhos globais do ICU
+
         echo "Extraindo cabeçalhos..."
         unzip -q icu_download/include.zip -d temp_include
-        
-        # Correção cirúrgica de caminhos: Garante que a pasta 'unicode' fique exatamente dentro de 'ios_deps/icu/include'
+
         if [ -d "temp_include/unicode" ]; then
           cp -R temp_include/unicode ios_deps/icu/include/
         else
           find temp_include -type d -name "unicode" -exec cp -R {} ios_deps/icu/include/ \;
         fi
 
-        # 2. Descompacta cada biblioteca estática individual do diretório de download
         echo "Extraindo bibliotecas XCFramework..."
         for zipfile in icuuc.xcframework.zip icui18n.xcframework.zip icudata.xcframework.zip icuio.xcframework.zip; do
           if [ -f "icu_download/$zipfile" ]; then
@@ -83,23 +78,22 @@ jobs:
           fi
         done
 
-        # 3. Pescaria: Pega APENAS as libs estáveis do dispositivo real (ios-arm64)
         find temp_libs -path "*/ios-arm64/*.a" -exec cp {} ios_deps/icu/lib/ \;
-        
-        # Log de depuração para termos certeza absoluta do caminho do arquivo travado
-        echo "=== CHECAGEM DA PASTA DE HEADER ==="
+
+        echo "=== HEADERS ICU ==="
         ls -la ios_deps/icu/include/
         ls -la ios_deps/icu/include/unicode/ | head -n 5
+        echo "=== LIBS ICU ==="
+        ls -la ios_deps/icu/lib/
 
     # ----------------------------------------------------------------
-    # ETAPA 4: Compilar o laya.cpp como Biblioteca Estática (.a)
+    # ETAPA 4: Compilar laya.cpp como Biblioteca Estática (.a)
     # ----------------------------------------------------------------
-    - name: Configurar e Compilar laya.cpp Cruzado para iPhone XS
+    - name: Configurar laya.cpp Cruzado para iPhone
       run: |
-        mkdir build
+        mkdir -p build
         cd build
-        
-        # Injetamos o -DBUILD_SHARED_LIBS=OFF para converter todos os .dylib em .a legítimos de iOS
+
         cmake .. \
           -DCMAKE_SYSTEM_NAME=iOS \
           -DCMAKE_OSX_ARCHITECTURES=arm64 \
@@ -110,6 +104,10 @@ jobs:
           -DLAYA_COREML=ON \
           -DLAYA_VULKAN=OFF \
           -DGGML_CUDA=OFF \
+          -DGGML_VULKAN=OFF \
+          -DGGML_METAL=ON \
+          -DGGML_METAL_EMBED_LIBRARY=ON \
+          -DGGML_ACCELERATE=ON \
           -DGGML_BUILD_EXAMPLES=OFF \
           -DGGML_BUILD_TESTS=OFF \
           -Dnlohmann_json_DIR="$GITHUB_WORKSPACE/ios_deps/share/cmake/nlohmann_json" \
@@ -125,13 +123,56 @@ jobs:
         cd build
         cmake --build . --target laya --config Release
 
+    - name: Verificar artefatos gerados
+      run: |
+        echo "=== liblaya ==="
+        find build -name "liblaya.a"
+        echo "=== ggml libs ==="
+        find build -name "libggml*.a"
+        echo "=== icu libs ==="
+        ls -la ios_deps/icu/lib/
+
     # ----------------------------------------------------------------
-    # ETAPA 5: Guardar o resultado final limpo
+    # ETAPA 5: Coletar TODAS as bibliotecas estáticas necessárias
     # ----------------------------------------------------------------
-    - name: Upload das Bibliotecas Prontas para o Xcode
+    - name: Coletar todas as .a necessárias
+      run: |
+        mkdir -p laya-ios-bundle/libs
+        mkdir -p laya-ios-bundle/include
+
+        # 1. laya
+        find build -name "liblaya.a" -exec cp {} laya-ios-bundle/libs/ \;
+
+        # 2. ggml (todas as variantes que existirem)
+        find build -name "libggml*.a" -exec cp {} laya-ios-bundle/libs/ \;
+
+        # 3. ICU (todas as libs estáticas do iOS)
+        cp ios_deps/icu/lib/*.a laya-ios-bundle/libs/ 2>/dev/null || true
+
+        # 4. Headers públicos do ggml e da laya
+        find build -name "ggml.h" -exec cp {} laya-ios-bundle/include/ \; 2>/dev/null || true
+        find build -name "ggml-backend.h" -exec cp {} laya-ios-bundle/include/ \; 2>/dev/null || true
+        find build -name "ggml-cpu.h" -exec cp {} laya-ios-bundle/include/ \; 2>/dev/null || true
+        find build -name "ggml-metal.h" -exec cp {} laya-ios-bundle/include/ \; 2>/dev/null || true
+        find build -name "ggml-alloc.h" -exec cp {} laya-ios-bundle/include/ \; 2>/dev/null || true
+        find build -name "gguf.h" -exec cp {} laya-ios-bundle/include/ \; 2>/dev/null || true
+        find build -name "llama.h" -exec cp {} laya-ios-bundle/include/ \; 2>/dev/null || true
+        find build -name "runtime.hpp" -exec cp {} laya-ios-bundle/include/ \; 2>/dev/null || true
+        find build -name "coreml.hpp" -exec cp {} laya-ios-bundle/include/ \; 2>/dev/null || true
+        find build -name "precision.hpp" -exec cp {} laya-ios-bundle/include/ \; 2>/dev/null || true
+        find build -name "decision.hpp" -exec cp {} laya-ios-bundle/include/ \; 2>/dev/null || true
+        find build -name "http.hpp" -exec cp {} laya-ios-bundle/include/ \; 2>/dev/null || true
+
+        echo "========================================"
+        echo "CONTEÚDO DO BUNDLE:"
+        ls -la laya-ios-bundle/libs/
+        echo "========================================"
+        echo "TOTAL DE LIBS:"
+        ls laya-ios-bundle/libs/ | wc -l
+
+    - name: Upload do bundle completo
       uses: actions/upload-artifact@v4
       with:
-        name: laya-engine-ios-arm64
-        path: |
-          build/liblaya.a
-          build/third_party/ggml/src/libggml.a
+        name: laya-ios-bundle
+        path: laya-ios-bundle/
+        retention-days: 30
