@@ -1,34 +1,65 @@
-name: Build laya.cpp for iOS
+name: Build Dependencies and laya.cpp for iOS
 
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
   workflow_dispatch: 
 
 jobs:
-  build-ios:
-    runs-on: macos-latest 
+  build-dependencies-and-laya:
+    runs-on: macos-latest
 
     steps:
-    - name: Checkout do código
+    - name: Checkout do laya.cpp
       uses: actions/checkout@v4
       with:
-        submodules: recursive 
+        submodules: recursive
 
-    - name: Configurar ferramentas e dependências
+    - name: Configurar ferramentas do Host
       run: |
-        brew install cmake nlohmann-json icu4c
-        # Mapeia as variáveis de ambiente com os caminhos corretos do Homebrew
-        echo "ICU_ROOT=/opt/homebrew/opt/icu4c" >> $GITHUB_ENV
-        echo "NLOHMANN_JSON_DIR=/opt/homebrew/opt/nlohmann-json/share/cmake/nlohmann_json" >> $GITHUB_ENV
+        brew install cmake
 
-    - name: Configurar o Build com Dependências Mapeadas
+    # ----------------------------------------------------------------
+    # ETAPA 1: Baixar e Instalar o nlohmann_json para iOS
+    # ----------------------------------------------------------------
+    - name: Clonar e Compilar nlohmann_json para iOS
+      run: |
+        git clone --depth 1 https://github.com json_src
+        mkdir -p json_src/build_ios && cd json_src/build_ios
+        cmake .. \
+          -DCMAKE_SYSTEM_NAME=iOS \
+          -DCMAKE_OSX_ARCHITECTURES=arm64 \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 \
+          -DJSON_BuildTests=OFF
+        cmake --build . --config Release
+        # Define o caminho de instalação local temporário dentro do runner
+        cmake --install . --prefix ../../ios_deps
+
+    # ----------------------------------------------------------------
+    # ETAPA 2: Clonar e Compilar o ICU para iOS (Usando Script Dedicado)
+    # ----------------------------------------------------------------
+    - name: Clonar e Compilar ICU para iOS (icu4c-iosx)
+      run: |
+        # Usamos uma das ferramentas mais estáveis da comunidade para cross-compile do ICU no iOS
+        git clone --depth 1 https://github.com icu_ios
+        cd icu_ios
+        # O script build.sh do repositório gera as versões macOS (host) e iOS (target) automaticamente
+        ./scripts/build.sh
+        
+        # Movemos os arquivos gerados com a arquitetura correta para a nossa pasta unificada de dependências
+        mkdir -p ../ios_deps/icu
+        cp -R product/include ../ios_deps/icu/include
+        cp -R product/lib ../ios_deps/icu/lib
+
+    # ----------------------------------------------------------------
+    # ETAPA 3: Compilar o laya.cpp apontando para as libs do iOS geradas
+    # ----------------------------------------------------------------
+    - name: Compilar laya.cpp Cruzado para iPhone XS
       run: |
         mkdir build
         cd build
-        # Forçamos o CMake a ler os caminhos do ICU e JSON que o Homebrew instalou
+        
+        # Apontamos diretamente para a nossa pasta 'ios_deps' criada nas etapas anteriores
         cmake .. \
           -DCMAKE_SYSTEM_NAME=iOS \
           -DCMAKE_OSX_ARCHITECTURES=arm64 \
@@ -40,18 +71,26 @@ jobs:
           -DGGML_CUDA=OFF \
           -DGGML_BUILD_EXAMPLES=OFF \
           -DGGML_BUILD_TESTS=OFF \
-          -DICU_ROOT="${{ env.ICU_ROOT }}" \
-          -Dnlohmann_json_DIR="${{ env.NLOHMANN_JSON_DIR }}"
+          -Dnlohmann_json_DIR="$GITHUB_WORKSPACE/ios_deps/share/cmake/nlohmann_json" \
+          -DICU_INCLUDE_DIR="$GITHUB_WORKSPACE/ios_deps/icu/include" \
+          -DICU_LIBRARY="$GITHUB_WORKSPACE/ios_deps/icu/lib/libicuuc.a" \
+          -DICU_UC_LIBRARY="$GITHUB_WORKSPACE/ios_deps/icu/lib/libicuuc.a" \
+          -DICU_I18N_LIBRARY="$GITHUB_WORKSPACE/ios_deps/icu/lib/libicui18n.a" \
+          -DICU_DATA_LIBRARY="$GITHUB_WORKSPACE/ios_deps/icu/lib/libicudata.a"
 
-    - name: Compilar a Biblioteca
+    - name: Compilar Alvo Final
       run: |
         cd build
         cmake --build . --target laya --config Release
 
-    - name: Upload do Binário Compilado (Artefato)
+    # ----------------------------------------------------------------
+    # ETAPA 4: Coletar e disponibilizar os binários estáveis de iOS
+    # ----------------------------------------------------------------
+    - name: Upload dos Artefatos de iOS
       uses: actions/upload-artifact@v4
       with:
-        name: laya-cpp-ios-arm64
+        name: laya-complete-ios-arm64
         path: |
           build/liblaya.a
           build/third_party/ggml/src/libggml.a
+          ios_deps/icu/lib/*.a
