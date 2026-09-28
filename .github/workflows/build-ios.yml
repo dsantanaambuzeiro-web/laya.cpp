@@ -5,34 +5,35 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
-  workflow_dispatch: # Permite rodar manualmente pelo painel do GitHub
+  workflow_dispatch: 
 
 jobs:
   build-ios:
-    runs-on: macos-latest # Obrigatório usar macOS para ter o SDK do iOS / Xcode
+    runs-on: macos-latest 
 
     steps:
     - name: Checkout do código
       uses: actions/checkout@v4
       with:
-        submodules: recursive # Garante que baixa o ggml e dependências internas do laya.cpp
+        submodules: recursive 
 
-    - name: Configurar o CMake e ferramentas de build
+    - name: Configurar ferramentas de build
       run: |
         brew install cmake nlohmann-json icu4c
-        # Adiciona o ICU4C do homebrew no PATH do sistema para o CMake achar
         echo "export PATH=\"/opt/homebrew/opt/icu4c/bin:/opt/homebrew/opt/icu4c/sbin:\$PATH\"" >> $GITHUB_ENV
 
-    - name: Configurar o Build com CMake para iOS (arm64)
+    - name: Configurar o Build (Desativando CUDA e Ativando Core ML)
       run: |
         mkdir build
         cd build
-        # Usamos as flags nativas do CMake da Apple para compilar mirado em dispositivos iOS reais
+        # Forçamos explicitamente o desligamento do CUDA e ativamos o Core ML para a Apple
         cmake .. \
           -DCMAKE_SYSTEM_NAME=iOS \
           -DCMAKE_OSX_ARCHITECTURES=arm64 \
           -DCMAKE_BUILD_TYPE=Release \
+          -DLAYA_CUDA=OFF \
           -DLAYA_COREML=ON \
+          -DGGML_CUDA=OFF \
           -DDEPLOYMENT_TARGET=16.0
 
     - name: Compilar o laya.cpp
