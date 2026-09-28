@@ -92,18 +92,20 @@ jobs:
         ls -la ios_deps/icu/include/unicode/ | head -n 5
 
     # ----------------------------------------------------------------
-    # ETAPA 4: Compilar o laya.cpp acoplado aos binários extraídos
+    # ETAPA 4: Compilar o laya.cpp como Biblioteca Estática (.a)
     # ----------------------------------------------------------------
     - name: Configurar e Compilar laya.cpp Cruzado para iPhone XS
       run: |
         mkdir build
         cd build
         
+        # Injetamos o -DBUILD_SHARED_LIBS=OFF para converter todos os .dylib em .a legítimos de iOS
         cmake .. \
           -DCMAKE_SYSTEM_NAME=iOS \
           -DCMAKE_OSX_ARCHITECTURES=arm64 \
           -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 \
           -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_SHARED_LIBS=OFF \
           -DLAYA_CUDA=OFF \
           -DLAYA_COREML=ON \
           -DLAYA_VULKAN=OFF \
@@ -117,7 +119,6 @@ jobs:
           -DICU_INCLUDE_DIRS="$GITHUB_WORKSPACE/ios_deps/icu/include" \
           -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
           -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH
-
 
     - name: Compilar Alvo Final laya.a
       run: |
