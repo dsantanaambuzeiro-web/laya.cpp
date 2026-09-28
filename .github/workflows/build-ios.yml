@@ -1,0 +1,49 @@
+name: Build laya.cpp for iOS
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: # Permite rodar manualmente pelo painel do GitHub
+
+jobs:
+  build-ios:
+    runs-on: macos-latest # Obrigatório usar macOS para ter o SDK do iOS / Xcode
+
+    steps:
+    - name: Checkout do código
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive # Garante que baixa o ggml e dependências internas do laya.cpp
+
+    - name: Configurar o CMake e ferramentas de build
+      run: |
+        brew install cmake nlohmann-json icu4c
+        # Adiciona o ICU4C do homebrew no PATH do sistema para o CMake achar
+        echo "export PATH=\"/opt/homebrew/opt/icu4c/bin:/opt/homebrew/opt/icu4c/sbin:\$PATH\"" >> $GITHUB_ENV
+
+    - name: Configurar o Build com CMake para iOS (arm64)
+      run: |
+        mkdir build
+        cd build
+        # Usamos as flags nativas do CMake da Apple para compilar mirado em dispositivos iOS reais
+        cmake .. \
+          -DCMAKE_SYSTEM_NAME=iOS \
+          -DCMAKE_OSX_ARCHITECTURES=arm64 \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DLAYA_COREML=ON \
+          -DDEPLOYMENT_TARGET=16.0
+
+    - name: Compilar o laya.cpp
+      run: |
+        cd build
+        cmake --build . --config Release
+
+    - name: Upload do Binário Compilado (Artefato)
+      uses: actions/upload-artifact@v4
+      with:
+        name: laya-cpp-ios-arm64
+        path: |
+          build/bin/
+          build/*.a
